@@ -1,6 +1,9 @@
 "use client";
 
 import * as React from "react";
+import type { WardPopulation } from "@/lib/population";
+import type { WardWaterQuality } from "@/lib/water-quality";
+import type { MumbaiWaterSectorConsumption } from "@/lib/water-sector-consumption";
 
 /* ----------------------------------------------------------------------------
  * Mumbai Address Picker (Purple Sunset Glow Palette)
@@ -55,6 +58,31 @@ export interface MumbaiAddressPickerProps {
   /** If true, fills the full viewport. Default true. */
   fullScreen?: boolean;
   className?: string;
+  /** Census records fetched by the server from Supabase. */
+  population?: WardPopulation[];
+  /** Published ward-level drinking-water safety results from Supabase. */
+  waterQuality?: WardWaterQuality[];
+  /** Historical citywide metered-water sector shares from Supabase. */
+  waterSectorConsumption?: MumbaiWaterSectorConsumption[];
+}
+
+type EnvironmentalPillarId =
+  | "population"
+  | "water"
+  | "pollution"
+  | "climate"
+  | "energy"
+  | "ghg"
+  | "land";
+
+interface EnvironmentalPillar {
+  id: EnvironmentalPillarId;
+  label: string;
+  unit: string;
+  coverage: string;
+  description: string;
+  parameters: string[];
+  subcategories?: { label: string; parameters: string[] }[];
 }
 
 /* -- data ------------------------------------------------------------------ */
@@ -728,6 +756,98 @@ for (const r of REGIONS) {
   );
 }
 
+const DATABASE_WARD_NAMES: Record<string, string> = {
+  "F/N": "Ward F North",
+  "F/S": "Ward F South",
+  "G/N": "Ward G North",
+  "G/S": "Ward G South",
+  "H/E": "Ward H East",
+  "H/W": "Ward H West",
+  "K/E": "Ward K East",
+  "K/W": "Ward K West",
+  "M/E": "Ward M East",
+  "M/W": "Ward M West",
+  "P/N": "Ward P North",
+  "P/S": "Ward P South",
+  "R/C": "Ward R Central",
+  "R/N": "Ward R North",
+  "R/S": "Ward R South",
+};
+
+const ENVIRONMENTAL_PILLARS: EnvironmentalPillar[] = [
+  {
+    id: "population",
+    label: "Population",
+    unit: "people / households",
+    coverage: "24 Mumbai wards • Census 2011",
+    description: "Ward-level census characteristics. Values below come directly from the connected census records.",
+    parameters: ["Total population", "Population density", "Population growth rate", "Household count", "Average household size", "Daytime population", "Population distribution"],
+  },
+  {
+    id: "water",
+    label: "Water resources",
+    unit: "% unsafe drinking-water samples",
+    coverage: "24 Mumbai wards • 2022–23 to 2024–25",
+    description: "Published BMC ward-level percentage of drinking-water samples classified as unfit/unsafe. Other water parameters remain unreported.",
+    parameters: ["Total water production", "Water supplied", "Per-capita availability", "Domestic, commercial, industrial & institutional consumption", "Groundwater availability & extraction", "Groundwater quality", "Surface-water availability & quality", "Wastewater generated, treated & discharged", "Sewage treatment capacity", "Water losses / non-revenue water", "Water bodies, health & encroachment", "Rainwater harvesting", "Waterlogging hotspots", "Water stress index"],
+  },
+  {
+    id: "pollution",
+    label: "Pollution",
+    unit: "source-reported unit",
+    coverage: "Awaiting monitor or ward records",
+    description: "Separate air, water, and noise evidence tabs preserve monitoring method, location, and time window.",
+    parameters: [],
+    subcategories: [
+      { label: "Air", parameters: ["PM2.5", "PM10", "NO₂", "SO₂", "CO", "O₃", "NH₃", "AQI", "Industrial, vehicular & construction sources", "Pollution hotspots", "Seasonal variation"] },
+      { label: "Water", parameters: ["pH", "Dissolved oxygen", "BOD", "COD", "TDS", "Turbidity", "Heavy metals", "Microbial contamination", "Nutrients", "Industrial effluent", "Sewage contamination", "Plastic & solid waste", "Water quality index", "Polluted water bodies", "Pollution sources"] },
+      { label: "Noise", parameters: ["Average noise level", "Daytime, nighttime & peak dB(A)", "Traffic, industrial & construction noise", "Commercial & residential exposure", "Limit exceedance", "Noise hotspots", "Citizen complaints"] },
+    ],
+  },
+  {
+    id: "climate",
+    label: "Temperature & climate",
+    unit: "°C / source-reported unit",
+    coverage: "Awaiting comparable records",
+    description: "Temperature, heat, and climate indicators for each ward, reported with the observation period.",
+    parameters: ["Average, maximum & minimum temperature", "Land-surface & air temperature", "Urban heat island intensity", "Heatwave frequency & duration", "Relative humidity", "Rainfall", "Solar radiation", "Temperature anomalies", "Heat hotspots", "Heat exposure & vulnerability"],
+  },
+  {
+    id: "energy",
+    label: "Electricity & energy",
+    unit: "°C",
+    coverage: "Awaiting verified ward-level records",
+    description: "Demand, reliability, energy mix, access, and emissions-related electricity evidence.",
+    parameters: ["Total, domestic, commercial, industrial & institutional consumption", "Street-lighting consumption", "Peak & average demand", "Per-capita consumption", "Supply availability", "Outage frequency & duration", "Renewable share", "Solar capacity & generation", "Fossil-fuel dependence", "Transmission & distribution losses", "Energy access", "Electricity emissions", "Energy-efficiency measures"],
+  },
+  {
+    id: "ghg",
+    label: "GHG emissions",
+    unit: "tCO₂e / source-reported unit",
+    coverage: "Awaiting activity and emission-factor records",
+    description: "Calculated from activity data and published emission factors—not ordinary air-quality sensor readings.",
+    parameters: ["Total GHG emissions", "CO₂, methane & nitrous oxide", "Electricity, transport, industrial, building & waste emissions", "Per-capita emissions", "Emission intensity", "Carbon sequestration", "Net carbon emissions", "Major emission sources"],
+  },
+  {
+    id: "land",
+    label: "Land & green space",
+    unit: "area / percentage / source-reported unit",
+    coverage: "Awaiting mapped records",
+    description: "Land use, vegetation, public access, ecological assets, and change over time.",
+    parameters: ["Total ward area", "Built-up, residential, commercial & industrial land", "Green cover, parks, tree cover & vegetation", "Green space per capita", "Green-space accessibility", "Impervious surface", "Spatial distribution & land-use change", "Development density", "Green-space health", "Wetlands, mangroves & sensitive areas", "Green-cover loss"],
+  },
+];
+
+const populationFormatter = new Intl.NumberFormat("en-IN");
+
+function formatPopulation(value: number | null | undefined) {
+  return value == null ? "Population unavailable" : populationFormatter.format(value);
+}
+
+function formatPercentage(value: number | null | undefined) {
+  return value == null ? "Not reported" : `${value.toFixed(1)}%`;
+}
+
 function findWardsByPostalCode(prefix: string): Ward[] {
   if (!prefix) return [];
   return WARDS.filter((w) =>
@@ -872,6 +992,29 @@ const CSS = `
 .nap .nap-crumb[aria-current] { color: var(--nap-fg); font-weight: 600; }
 .nap-chev { width: 15px; height: 15px; flex-shrink: 0; color: var(--nap-muted-fg); opacity: 0.6; }
 
+.nap-layerbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 3px;
+  scrollbar-width: none;
+}
+.nap-layerbar::-webkit-scrollbar { display: none; }
+.nap .nap-layer {
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--nap-muted-fg);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.nap .nap-layer:hover { background: var(--nap-muted); color: var(--nap-fg); }
+.nap .nap-layer[aria-pressed=true] { background: var(--nap-fg); color: var(--nap-bg); border-color: var(--nap-fg); }
+
 .nap-inline {
   display: flex;
   align-items: center;
@@ -973,6 +1116,26 @@ const CSS = `
 .nap-chip-main { font-weight: 600; font-size: 13.5px; color: var(--nap-fg); }
 .nap-chip-sub { font-size: 12px; color: var(--nap-muted-fg); }
 
+.nap-legend {
+  pointer-events: none;
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  z-index: 10;
+  min-width: 156px;
+  padding: 10px 12px;
+  border: 1px solid var(--nap-border);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.94);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(10px);
+}
+.nap[data-theme=dark] .nap-legend { background: rgba(12, 13, 16, 0.88); }
+.nap-legend-title { display: block; font-size: 11.5px; font-weight: 700; color: var(--nap-fg); }
+.nap-legend-range { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--nap-muted-fg); font-variant-numeric: tabular-nums; }
+.nap-legend-scale { height: 7px; border-radius: 999px; margin-top: 7px; background: linear-gradient(90deg, hsl(205 72% 82%), hsl(205 72% 38%)); }
+.nap-water-legend-scale { background: linear-gradient(90deg, hsl(150 68% 48%), hsl(5 68% 53%)); }
+
 .nap-inset {
   position: absolute;
   left: 24px;
@@ -1025,6 +1188,39 @@ const CSS = `
 .nap-list-head h3 { font-size: 14.5px; font-weight: 600; color: var(--nap-fg); }
 .nap-list-head .nap-sub { font-size: 12.5px; color: var(--nap-muted-fg); }
 
+.nap-data-context {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--nap-border);
+  background: color-mix(in srgb, var(--nap-muted) 55%, transparent);
+}
+.nap-data-kicker { display: block; margin-bottom: 4px; color: var(--nap-muted-fg); font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.nap-data-title { margin: 0; color: var(--nap-fg); font-size: 14px; font-weight: 650; }
+.nap-data-copy { margin: 5px 0 0; color: var(--nap-muted-fg); font-size: 12px; line-height: 1.45; }
+.nap-data-meta { display: flex; flex-wrap: wrap; gap: 5px 10px; margin-top: 8px; color: var(--nap-muted-fg); font-size: 11.5px; }
+.nap-data-meta strong { color: var(--nap-fg); font-weight: 600; }
+.nap-empty-state { padding: 24px 20px; color: var(--nap-muted-fg); font-size: 13px; line-height: 1.55; }
+.nap-empty-state strong { display: block; margin-bottom: 6px; color: var(--nap-fg); font-size: 14px; }
+.nap-parameter-tabs { display: flex; gap: 6px; margin-top: 10px; }
+.nap-parameter-tab { border: 1px solid var(--nap-border); border-radius: 999px; padding: 4px 9px; background: transparent; color: var(--nap-muted-fg); font: inherit; font-size: 11.5px; cursor: pointer; }
+.nap-parameter-tab[aria-pressed=true] { border-color: var(--nap-fg); background: var(--nap-fg); color: var(--nap-bg); }
+.nap-parameter-list { list-style: none; margin: 0; padding: 8px; flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.nap-parameter { padding: 10px 12px; border: 1px solid var(--nap-border); border-radius: 8px; background: color-mix(in srgb, var(--nap-muted) 45%, transparent); }
+.nap-parameter-name { display: block; color: var(--nap-fg); font-size: 12.5px; font-weight: 600; }
+.nap-parameter-status { display: block; margin-top: 3px; color: var(--nap-muted-fg); font-size: 11.5px; }
+.nap-population-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--nap-border); }
+.nap-population-fact { padding: 8px; border: 1px solid var(--nap-border); border-radius: 7px; background: color-mix(in srgb, var(--nap-muted) 35%, transparent); }
+.nap-population-fact span { display: block; color: var(--nap-muted-fg); font-size: 10.5px; line-height: 1.25; }
+.nap-population-fact strong { display: block; margin-top: 3px; color: var(--nap-fg); font-size: 12px; font-variant-numeric: tabular-nums; }
+.nap-citywide-card { padding: 12px 16px; border-bottom: 1px solid var(--nap-border); background: color-mix(in srgb, var(--nap-muted) 32%, transparent); }
+.nap-citywide-title { margin: 0; color: var(--nap-fg); font-size: 12.5px; font-weight: 700; }
+.nap-citywide-copy { margin: 3px 0 9px; color: var(--nap-muted-fg); font-size: 11px; line-height: 1.4; }
+.nap-sector-row + .nap-sector-row { margin-top: 7px; }
+.nap-sector-label { display: flex; justify-content: space-between; gap: 8px; color: var(--nap-fg); font-size: 11.5px; }
+.nap-sector-label span:last-child { color: var(--nap-muted-fg); font-variant-numeric: tabular-nums; }
+.nap-sector-track { height: 6px; overflow: hidden; margin-top: 4px; border-radius: 999px; background: var(--nap-border); }
+.nap-sector-fill { height: 100%; border-radius: inherit; }
+.nap-citywide-note { margin: 9px 0 0; color: var(--nap-muted-fg); font-size: 10.5px; line-height: 1.4; }
+
 .nap-ul {
   list-style: none;
   margin: 0;
@@ -1053,6 +1249,8 @@ const CSS = `
 .nap-name { font-weight: 500; font-size: 13.5px; color: var(--nap-fg); }
 .nap-sub { font-size: 12px; color: var(--nap-muted-fg); }
 .nap-num { flex-shrink: 0; font-size: 12.5px; color: var(--nap-muted-fg); font-variant-numeric: tabular-nums; }
+.nap-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+.nap-population { font-size: 11.5px; color: var(--nap-muted-fg); font-variant-numeric: tabular-nums; }
 
 .nap-map-text {
   user-select: none;
@@ -1062,6 +1260,10 @@ const CSS = `
 }
 
 @media (max-width: 768px) {
+  .nap-header { padding: 0 12px; gap: 8px; }
+  .nap-layerbar { order: 3; position: absolute; top: 56px; left: 0; right: 0; padding: 8px 12px; border-bottom: 1px solid var(--nap-border); background: var(--nap-bg); z-index: 30; }
+  .nap-body { margin-top: 42px; }
+  .nap-inline .nap-label { display: none; }
   .nap-body {
     flex-direction: column;
   }
@@ -1086,6 +1288,9 @@ export function MumbaiAddressPicker({
   theme = "light",
   fullScreen = true,
   className,
+  population = [],
+  waterQuality = [],
+  waterSectorConsumption = [],
 }: MumbaiAddressPickerProps) {
   const initialWard = defaultWardId ? WARD_BY_ID.get(defaultWardId) : undefined;
   const initialRegion = initialWard ? REGION_BY_ID.get(initialWard.regionId) : undefined;
@@ -1098,11 +1303,51 @@ export function MumbaiAddressPicker({
   const [hoveredRegionId, setHoveredRegionId] = React.useState<string | null>(null);
   const [postal, setPostal] = React.useState(initialWard?.postalCode ?? "");
   const [searching, setSearching] = React.useState(false);
+  const [pillarId, setPillarId] = React.useState<EnvironmentalPillarId>("population");
+  const [pollutionCategoryIndex, setPollutionCategoryIndex] = React.useState(0);
   const [mapContainerRef, mapSize] = useElementSize<HTMLDivElement>();
 
   const region = regionId ? REGION_BY_ID.get(regionId) ?? null : null;
   const ward = wardId ? WARD_BY_ID.get(wardId) ?? null : null;
   const hovered = hoveredWardId ? WARD_BY_ID.get(hoveredWardId) ?? null : null;
+  const populationByWardName = React.useMemo(
+    () => new Map(population.map((record) => [record.wardName, record])),
+    [population]
+  );
+  const populationForWard = React.useCallback(
+    (candidate: Ward) => populationByWardName.get(DATABASE_WARD_NAMES[candidate.id] ?? candidate.name),
+    [populationByWardName]
+  );
+  const waterQualityByWardName = React.useMemo(
+    () => new Map(waterQuality.map((record) => [record.wardName, record])),
+    [waterQuality]
+  );
+  const waterQualityForWard = React.useCallback(
+    (candidate: Ward) => waterQualityByWardName.get(DATABASE_WARD_NAMES[candidate.id] ?? candidate.name),
+    [waterQualityByWardName]
+  );
+  const totalPopulation = React.useMemo(
+    () => population.reduce((total, record) => total + (record.totalPopulation ?? 0), 0),
+    [population]
+  );
+  const populationRange = React.useMemo(() => {
+    const values = population
+      .map((record) => record.totalPopulation)
+      .filter((value): value is number => value != null);
+    return values.length ? { min: Math.min(...values), max: Math.max(...values) } : null;
+  }, [population]);
+  const waterQualityRange = React.useMemo(() => {
+    const values = waterQuality.map((record) => record.unsafeSamplePercentage);
+    return values.length ? { min: Math.min(...values), max: Math.max(...values) } : null;
+  }, [waterQuality]);
+  const activePillar = ENVIRONMENTAL_PILLARS.find((pillar) => pillar.id === pillarId) ?? ENVIRONMENTAL_PILLARS[0];
+  const isPopulationLayer = pillarId === "population";
+  const isWaterLayer = pillarId === "water";
+  const activeParameters = activePillar.subcategories?.[pollutionCategoryIndex]?.parameters ?? activePillar.parameters;
+  const populationYear = population[0]?.censusYear;
+  const sourceLabel = population[0]?.dataSource?.split("|")[0]?.trim() ?? "Source not supplied";
+  const waterReportingPeriod = waterQuality[0]?.reportingPeriod;
+  const waterSourceLabel = waterQuality[0]?.dataSource ?? "Source not supplied";
 
   const matches = React.useMemo(
     () =>
@@ -1205,6 +1450,30 @@ export function MumbaiAddressPicker({
   const fillFor = (w: Ward) => {
     const isSelected = w.id === wardId;
     const isHovered = w.id === hoveredWardId;
+    const wardPopulation = populationForWard(w)?.totalPopulation;
+    const wardWaterQuality = waterQualityForWard(w)?.unsafeSamplePercentage;
+
+    if (isPopulationLayer && populationRange && wardPopulation != null) {
+      const span = Math.max(populationRange.max - populationRange.min, 1);
+      const ratio = (wardPopulation - populationRange.min) / span;
+      return {
+        fill: `hsl(205 72% ${82 - ratio * 44}%)`,
+        fillOpacity: isSelected || isHovered ? 1 : 0.9,
+        stroke: isSelected ? "#0f172a" : "#ffffff",
+        strokeWidth: isSelected ? 3 : isHovered ? 2 : 1.2,
+      };
+    }
+
+    if (isWaterLayer && waterQualityRange && wardWaterQuality != null) {
+      const span = Math.max(waterQualityRange.max - waterQualityRange.min, 0.1);
+      const ratio = (wardWaterQuality - waterQualityRange.min) / span;
+      return {
+        fill: `hsl(${150 - ratio * 145} 68% ${48 + ratio * 5}%)`,
+        fillOpacity: isSelected || isHovered ? 1 : 0.9,
+        stroke: isSelected ? "#0f172a" : "#ffffff",
+        strokeWidth: isSelected ? 3 : isHovered ? 2 : 1.2,
+      };
+    }
 
     if (matches.length > 0) {
       const isMatch = matchSet.has(w.id);
@@ -1247,6 +1516,35 @@ export function MumbaiAddressPicker({
   };
 
   const isZoomed = Boolean(region || ward || matches.length > 0);
+  const displayedWard = hovered ?? ward;
+  const displayedPopulation = displayedWard ? populationForWard(displayedWard) : undefined;
+  const displayedWaterQuality = displayedWard ? waterQualityForWard(displayedWard) : undefined;
+  const populationFacts = displayedPopulation
+    ? [
+        ["Total population", formatPopulation(displayedPopulation.totalPopulation)],
+        ["Households", formatPopulation(displayedPopulation.householdCount)],
+        ["Average household size", displayedPopulation.totalPopulation != null && displayedPopulation.householdCount ? (displayedPopulation.totalPopulation / displayedPopulation.householdCount).toFixed(2) : "Not supplied"],
+        ["Male population", formatPopulation(displayedPopulation.malePopulation)],
+        ["Female population", formatPopulation(displayedPopulation.femalePopulation)],
+        ["Age 0–6", formatPopulation(displayedPopulation.populationAge0To6)],
+        ["Literate population", formatPopulation(displayedPopulation.literatePopulation)],
+        ["Illiterate population", formatPopulation(displayedPopulation.illiteratePopulation)],
+        ["Slum population", formatPopulation(displayedPopulation.slumPopulation)],
+        ["Non-slum population", formatPopulation(displayedPopulation.nonSlumPopulation)],
+      ]
+    : [];
+  const waterFacts = displayedWaterQuality
+    ? [
+        ["Unsafe water samples", formatPercentage(displayedWaterQuality.unsafeSamplePercentage)],
+        ["Reporting period", displayedWaterQuality.reportingPeriod],
+      ]
+    : [];
+  const regionPopulation = region
+    ? (WARDS_BY_REGION.get(region.id) ?? []).reduce(
+        (total, candidate) => total + (populationForWard(candidate)?.totalPopulation ?? 0),
+        0
+      )
+    : 0;
 
   return (
     <div
@@ -1298,6 +1596,21 @@ export function MumbaiAddressPicker({
           )}
         </nav>
 
+        <div className="nap-layerbar" aria-label="Environmental data layers">
+          {ENVIRONMENTAL_PILLARS.map((pillar) => (
+            <button
+              key={pillar.id}
+              type="button"
+              className="nap-layer"
+              aria-pressed={pillar.id === pillarId}
+              onClick={() => setPillarId(pillar.id)}
+              title={pillar.description}
+            >
+              {pillar.label}
+            </button>
+          ))}
+        </div>
+
         <label className="nap-inline">
           <span className="nap-label">Postal code</span>
           <input
@@ -1321,24 +1634,46 @@ export function MumbaiAddressPicker({
               {hovered ? (
                 <>
                   <span className="nap-chip-main">{hovered.shortName}</span>
-                  <span className="nap-chip-sub">Ward {hovered.id} • {hovered.postalCode}</span>
+                  <span className="nap-chip-sub">
+                    {isPopulationLayer
+                      ? `Ward ${hovered.id} • ${formatPopulation(displayedPopulation?.totalPopulation)} residents (${displayedPopulation?.censusYear ?? "—"})`
+                      : isWaterLayer
+                        ? `Ward ${hovered.id} • ${formatPercentage(displayedWaterQuality?.unsafeSamplePercentage)} unsafe samples (${displayedWaterQuality?.reportingPeriod ?? "not reported"})`
+                        : `Ward ${hovered.id} • ${activePillar.label} records unavailable`}
+                  </span>
                 </>
               ) : ward ? (
                 <>
                   <span className="nap-chip-main">{ward.shortName}</span>
-                  <span className="nap-chip-sub">Ward {ward.id} • {ward.postalCode}</span>
+                  <span className="nap-chip-sub">
+                    {isPopulationLayer
+                      ? `Ward ${ward.id} • ${formatPopulation(displayedPopulation?.totalPopulation)} residents (${displayedPopulation?.censusYear ?? "—"})`
+                      : isWaterLayer
+                        ? `Ward ${ward.id} • ${formatPercentage(displayedWaterQuality?.unsafeSamplePercentage)} unsafe samples (${displayedWaterQuality?.reportingPeriod ?? "not reported"})`
+                        : `Ward ${ward.id} • ${activePillar.label} records unavailable`}
+                  </span>
                 </>
               ) : region ? (
                 <>
                   <span className="nap-chip-main">{region.name}</span>
                   <span className="nap-chip-sub">
-                    {WARDS_BY_REGION.get(region.id)?.length} wards
+                    {isPopulationLayer
+                      ? `${WARDS_BY_REGION.get(region.id)?.length} wards • ${formatPopulation(regionPopulation)} residents`
+                      : isWaterLayer
+                        ? `${WARDS_BY_REGION.get(region.id)?.length} wards • published water-safety results`
+                        : `${WARDS_BY_REGION.get(region.id)?.length} wards • no verified ${activePillar.label.toLowerCase()} records`}
                   </span>
                 </>
               ) : (
                 <>
                   <span className="nap-chip-main">Mumbai</span>
-                  <span className="nap-chip-sub">24 Wards</span>
+                  <span className="nap-chip-sub">
+                    {isPopulationLayer
+                      ? `24 wards • ${formatPopulation(totalPopulation)} residents (${populationYear ?? "census"})`
+                      : isWaterLayer
+                        ? `24 wards • published water-safety results (${waterReportingPeriod ?? "latest period"})`
+                        : `24 wards • no verified ${activePillar.label.toLowerCase()} records`}
+                  </span>
                 </>
               )}
             </div>
@@ -1485,11 +1820,151 @@ export function MumbaiAddressPicker({
               </svg>
             </div>
           )}
+
+          <div className="nap-legend" aria-live="polite">
+            <span className="nap-legend-title">{activePillar.label} layer</span>
+            {isPopulationLayer && populationRange ? (
+              <>
+                <div className="nap-legend-scale" />
+                <div className="nap-legend-range">
+                  <span>{formatPopulation(populationRange.min)}</span>
+                  <span>{formatPopulation(populationRange.max)} people</span>
+                </div>
+              </>
+            ) : isWaterLayer && waterQualityRange ? (
+              <>
+                <div className="nap-legend-scale nap-water-legend-scale" />
+                <div className="nap-legend-range">
+                  <span>{formatPercentage(waterQualityRange.min)} unsafe</span>
+                  <span>{formatPercentage(waterQualityRange.max)} unsafe</span>
+                </div>
+              </>
+            ) : (
+              <span className="nap-data-copy">No verified records loaded</span>
+            )}
+          </div>
         </div>
 
         {/* Sidebar */}
         <div className="nap-list">
-          {matches.length > 0 ? (
+          <div className="nap-data-context">
+            <span className="nap-data-kicker">Environmental evidence</span>
+            <p className="nap-data-title">{activePillar.label}</p>
+            <p className="nap-data-copy">{activePillar.description}</p>
+            <div className="nap-data-meta">
+              <span><strong>Unit:</strong> {activePillar.unit}</span>
+              <span><strong>Coverage:</strong> {activePillar.coverage}</span>
+              {isPopulationLayer && <span><strong>Period:</strong> {populationYear ?? "Not supplied"}</span>}
+              {isPopulationLayer && <span><strong>Source:</strong> {sourceLabel}</span>}
+              {isWaterLayer && <span><strong>Period:</strong> {waterReportingPeriod ?? "Not supplied"}</span>}
+              {isWaterLayer && <span><strong>Source:</strong> {waterSourceLabel}</span>}
+            </div>
+            {activePillar.subcategories && (
+              <div className="nap-parameter-tabs" aria-label="Pollution categories">
+                {activePillar.subcategories.map((category, index) => (
+                  <button
+                    key={category.label}
+                    type="button"
+                    className="nap-parameter-tab"
+                    aria-pressed={pollutionCategoryIndex === index}
+                    onClick={() => setPollutionCategoryIndex(index)}
+                  >
+                    {category.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {isPopulationLayer && populationFacts.length > 0 && (
+            <div className="nap-population-facts" aria-label="Selected ward population details">
+              {populationFacts.map(([label, value]) => (
+                <div className="nap-population-fact" key={label}>
+                  <span>{label}</span>
+                  <strong>{value}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {isWaterLayer && waterFacts.length > 0 && (
+            <div className="nap-population-facts" aria-label="Selected ward water quality details">
+              {waterFacts.map(([label, value]) => (
+                <div className="nap-population-fact" key={label}>
+                  <span>{label}</span>
+                  <strong>{value}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {isWaterLayer && waterSectorConsumption.length > 0 && (
+            <section className="nap-citywide-card" aria-label="Historical Mumbai water consumption by sector">
+              <p className="nap-citywide-title">Mumbai-wide metered-water split</p>
+              <p className="nap-citywide-copy">Historical context from 2006 — not current and not ward-level.</p>
+              {waterSectorConsumption
+                .slice()
+                .sort((a, b) => ["domestic", "commercial", "industrial"].indexOf(a.sector) - ["domestic", "commercial", "industrial"].indexOf(b.sector))
+                .map((record) => (
+                  <div className="nap-sector-row" key={record.sector}>
+                    <div className="nap-sector-label">
+                      <span>{record.sector[0].toUpperCase() + record.sector.slice(1)}</span>
+                      <span>{formatPercentage(record.meteredConsumptionSharePercentage)} consumption · {formatPercentage(record.meteredConnectionSharePercentage)} connections</span>
+                    </div>
+                    <div className="nap-sector-track" aria-hidden="true">
+                      <div
+                        className="nap-sector-fill"
+                        style={{
+                          width: `${record.meteredConsumptionSharePercentage}%`,
+                          backgroundColor: record.sector === "domestic" ? "#0f766e" : record.sector === "commercial" ? "#d97706" : "#7c3aed",
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              <p className="nap-citywide-note">Bars show historical metered-consumption share. The source&apos;s final 4% label is ambiguous; it is shown as industrial because industrial is the third connection category named in the same source.</p>
+            </section>
+          )}
+
+          {isWaterLayer ? (
+            <>
+              <div className="nap-list-head">
+                <h3>Published water-safety results</h3>
+                <span className="nap-sub">{waterReportingPeriod ?? "Latest period"}</span>
+              </div>
+              <ul className="nap-ul">
+                {WARDS.map((w) => (
+                  <li
+                    key={w.id}
+                    className="nap-item"
+                    aria-selected={ward?.id === w.id}
+                    onClick={() => selectWard(w)}
+                    onMouseEnter={() => setHoveredWardId(w.id)}
+                  >
+                    <span className="nap-dot" style={{ backgroundColor: w.color }} />
+                    <div className="nap-names">
+                      <span className="nap-name">{w.shortName}</span>
+                      <span className="nap-sub">% of samples classified unsafe</span>
+                    </div>
+                    <span className="nap-num">{formatPercentage(waterQualityForWard(w)?.unsafeSamplePercentage)}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : !isPopulationLayer ? (
+            <ul className="nap-parameter-list" aria-label={`${activePillar.label} parameter catalogue`}>
+              {activeParameters.map((parameter) => (
+                <li className="nap-parameter" key={parameter}>
+                  <span className="nap-parameter-name">{parameter}</span>
+                  <span className="nap-parameter-status">No verified ward-level record loaded</span>
+                </li>
+              ))}
+              <li className="nap-empty-state">
+                <strong>Ready for measured records</strong>
+                Prakriti will show each value only after it has a unit, period, source, and ward coverage. It will not estimate missing values.
+              </li>
+            </ul>
+          ) : matches.length > 0 ? (
             <>
               <div className="nap-list-head">
                 <h3>Matching Wards</h3>
@@ -1509,7 +1984,10 @@ export function MumbaiAddressPicker({
                       <span className="nap-name">{w.shortName}</span>
                       <span className="nap-sub">Ward {w.id}</span>
                     </div>
-                    <span className="nap-num">{w.postalCode}</span>
+                    <div className="nap-meta">
+                      <span className="nap-num">{w.postalCode}</span>
+                      <span className="nap-population">{formatPopulation(populationForWard(w)?.totalPopulation)}</span>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -1518,7 +1996,7 @@ export function MumbaiAddressPicker({
             <>
               <div className="nap-list-head">
                 <h3>{region.name}</h3>
-                <span className="nap-sub">{(WARDS_BY_REGION.get(region.id) || []).length} wards</span>
+                <span className="nap-sub">{formatPopulation(regionPopulation)} residents</span>
               </div>
               <ul className="nap-ul">
                 {(WARDS_BY_REGION.get(region.id) || []).map((w) => (
@@ -1533,7 +2011,10 @@ export function MumbaiAddressPicker({
                       <span className="nap-name">{w.shortName}</span>
                       <span className="nap-sub">Ward {w.id}</span>
                     </div>
-                    <span className="nap-num">{w.postalCode}</span>
+                    <div className="nap-meta">
+                      <span className="nap-num">{w.postalCode}</span>
+                      <span className="nap-population">{formatPopulation(populationForWard(w)?.totalPopulation)}</span>
+                    </div>
                   </li>
                 ))}
               </ul>
