@@ -4,6 +4,9 @@ import * as React from "react";
 import type { WardPopulation } from "@/lib/population";
 import type { WardWaterQuality } from "@/lib/water-quality";
 import type { MumbaiWaterSectorConsumption } from "@/lib/water-sector-consumption";
+import type { AirQualityMonthlyObservation } from "@/lib/air-quality";
+import type { NoiseMonitoringObservation } from "@/lib/noise-monitoring";
+import type { MumbaiElectricitySectorConsumption, MumbaiElectricitySupplySummary } from "@/lib/electricity-consumption";
 
 /* ----------------------------------------------------------------------------
  * Mumbai Address Picker (Purple Sunset Glow Palette)
@@ -64,6 +67,14 @@ export interface MumbaiAddressPickerProps {
   waterQuality?: WardWaterQuality[];
   /** Historical citywide metered-water sector shares from Supabase. */
   waterSectorConsumption?: MumbaiWaterSectorConsumption[];
+  /** Published BMC monitoring-station AQI records. */
+  airQuality?: AirQualityMonthlyObservation[];
+  /** Published MPCB named-location noise-monitoring records. */
+  noiseMonitoring?: NoiseMonitoringObservation[];
+  /** Published Mumbai City electricity consumption by consumer category. */
+  electricitySectorConsumption?: MumbaiElectricitySectorConsumption[];
+  /** Published Mumbai City electricity totals and selected supply indicators. */
+  electricitySupplySummaries?: MumbaiElectricitySupplySummary[];
 }
 
 type EnvironmentalPillarId =
@@ -746,6 +757,64 @@ export const WARDS: Ward[] = [
   }
 ];
 
+type MonitoringSiteMarker = {
+  point: Point;
+  wardId: string;
+  shortLabel: string;
+};
+
+type LiveMumbaiWeather = {
+  current: {
+    time: string;
+    temperature_2m: number;
+    apparent_temperature: number;
+    relative_humidity_2m: number;
+    precipitation: number;
+    rain: number;
+    wind_speed_10m: number;
+    wind_direction_10m: number;
+    weather_code: number;
+  };
+  daily: {
+    temperature_2m_max: number[];
+    temperature_2m_min: number[];
+    temperature_2m_mean: number[];
+    precipitation_sum: number[];
+    precipitation_probability_max: number[];
+    uv_index_max: number[];
+  };
+};
+
+const LIVE_MUMBAI_WEATHER_URL = "https://api.open-meteo.com/v1/forecast?latitude=19.076&longitude=72.8777&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,rain,wind_speed_10m,wind_direction_10m,weather_code&daily=temperature_2m_max,temperature_2m_min,temperature_2m_mean,precipitation_sum,precipitation_probability_max,uv_index_max&timezone=Asia%2FKolkata&forecast_days=1";
+
+// These are representative anchors on this schematic ward map for the published
+// monitoring *areas*. The source reports station/location names, not GPS coordinates.
+const AIR_STATION_MARKERS: Record<string, MonitoringSiteMarker> = {
+  Byculla: { point: [176, 690], wardId: "E", shortLabel: "Byculla" },
+  Ghatkopar: { point: [350, 450], wardId: "N", shortLabel: "Ghatkopar" },
+  Govandi: { point: [355, 548], wardId: "M/E", shortLabel: "Govandi" },
+  Kandivali: { point: [145, 182], wardId: "R/S", shortLabel: "Kandivali" },
+  Sewri: { point: [205, 650], wardId: "F/S", shortLabel: "Sewri" },
+};
+
+const NOISE_LOCATION_MARKERS: Record<string, MonitoringSiteMarker> = {
+  "Backside of High Court": { point: [151, 783], wardId: "A", shortLabel: "High Court" },
+  "Mumbadevi Temple": { point: [130, 746], wardId: "C", shortLabel: "Mumbadevi" },
+  "Borivali National Park": { point: [168, 112], wardId: "R/C", shortLabel: "Borivali NP" },
+  "Antop Hill": { point: [244, 576], wardId: "F/N", shortLabel: "Antop Hill" },
+  "Shivaji Park, Dadar": { point: [166, 565], wardId: "G/N", shortLabel: "Shivaji Park" },
+  "Santacruz Airport": { point: [216, 461], wardId: "H/E", shortLabel: "Santacruz" },
+  "Ghatkopar (W)": { point: [330, 445], wardId: "N", shortLabel: "Ghatkopar W" },
+  "Vashi Naka, Chembur": { point: [280, 571], wardId: "M/W", shortLabel: "Vashi Naka" },
+  "Goregaon (E)": { point: [229, 282], wardId: "P/S", shortLabel: "Goregaon E" },
+  "Charkop, Kandivali": { point: [122, 187], wardId: "R/S", shortLabel: "Charkop" },
+  Sion: { point: [233, 557], wardId: "F/N", shortLabel: "Sion" },
+  "Hindu Colony": { point: [190, 557], wardId: "G/N", shortLabel: "Hindu Colony" },
+  Matunga: { point: [214, 585], wardId: "F/N", shortLabel: "Matunga" },
+  Kamathipura: { point: [158, 694], wardId: "E", shortLabel: "Kamathipura" },
+  "Malabar Hills": { point: [86, 715], wardId: "D", shortLabel: "Malabar Hill" },
+};
+
 const REGION_BY_ID = new Map(REGIONS.map((r) => [r.id, r]));
 const WARD_BY_ID = new Map(WARDS.map((w) => [w.id, w]));
 const WARDS_BY_REGION = new Map<string, Ward[]>();
@@ -795,46 +864,29 @@ const ENVIRONMENTAL_PILLARS: EnvironmentalPillar[] = [
     id: "pollution",
     label: "Pollution",
     unit: "source-reported unit",
-    coverage: "Awaiting monitor or ward records",
-    description: "Separate air, water, and noise evidence tabs preserve monitoring method, location, and time window.",
+    coverage: "BMC and MPCB monitoring sites",
+    description: "Air and noise readings are shown by their published monitoring location and period, never estimated as ward averages.",
     parameters: [],
     subcategories: [
       { label: "Air", parameters: ["PM2.5", "PM10", "NO₂", "SO₂", "CO", "O₃", "NH₃", "AQI", "Industrial, vehicular & construction sources", "Pollution hotspots", "Seasonal variation"] },
-      { label: "Water", parameters: ["pH", "Dissolved oxygen", "BOD", "COD", "TDS", "Turbidity", "Heavy metals", "Microbial contamination", "Nutrients", "Industrial effluent", "Sewage contamination", "Plastic & solid waste", "Water quality index", "Polluted water bodies", "Pollution sources"] },
       { label: "Noise", parameters: ["Average noise level", "Daytime, nighttime & peak dB(A)", "Traffic, industrial & construction noise", "Commercial & residential exposure", "Limit exceedance", "Noise hotspots", "Citizen complaints"] },
     ],
   },
   {
     id: "climate",
     label: "Temperature & climate",
-    unit: "°C / source-reported unit",
-    coverage: "Awaiting comparable records",
-    description: "Temperature, heat, and climate indicators for each ward, reported with the observation period.",
+    unit: "°C / mm / %",
+    coverage: "Mumbai-wide live model estimate",
+    description: "Live temperature, humidity and rainfall are shown as a Mumbai-wide weather-model estimate, not as ward averages.",
     parameters: ["Average, maximum & minimum temperature", "Land-surface & air temperature", "Urban heat island intensity", "Heatwave frequency & duration", "Relative humidity", "Rainfall", "Solar radiation", "Temperature anomalies", "Heat hotspots", "Heat exposure & vulnerability"],
   },
   {
     id: "energy",
     label: "Electricity & energy",
-    unit: "°C",
-    coverage: "Awaiting verified ward-level records",
-    description: "Demand, reliability, energy mix, access, and emissions-related electricity evidence.",
+    unit: "MU / MW",
+    coverage: "Mumbai City (BEST) • FY 2024-25",
+    description: "Published BEST service-area consumption, load and selected supply indicators. These are citywide utility values, not ward averages.",
     parameters: ["Total, domestic, commercial, industrial & institutional consumption", "Street-lighting consumption", "Peak & average demand", "Per-capita consumption", "Supply availability", "Outage frequency & duration", "Renewable share", "Solar capacity & generation", "Fossil-fuel dependence", "Transmission & distribution losses", "Energy access", "Electricity emissions", "Energy-efficiency measures"],
-  },
-  {
-    id: "ghg",
-    label: "GHG emissions",
-    unit: "tCO₂e / source-reported unit",
-    coverage: "Awaiting activity and emission-factor records",
-    description: "Calculated from activity data and published emission factors—not ordinary air-quality sensor readings.",
-    parameters: ["Total GHG emissions", "CO₂, methane & nitrous oxide", "Electricity, transport, industrial, building & waste emissions", "Per-capita emissions", "Emission intensity", "Carbon sequestration", "Net carbon emissions", "Major emission sources"],
-  },
-  {
-    id: "land",
-    label: "Land & green space",
-    unit: "area / percentage / source-reported unit",
-    coverage: "Awaiting mapped records",
-    description: "Land use, vegetation, public access, ecological assets, and change over time.",
-    parameters: ["Total ward area", "Built-up, residential, commercial & industrial land", "Green cover, parks, tree cover & vegetation", "Green space per capita", "Green-space accessibility", "Impervious surface", "Spatial distribution & land-use change", "Development density", "Green-space health", "Wetlands, mangroves & sensitive areas", "Green-cover loss"],
   },
 ];
 
@@ -846,6 +898,39 @@ function formatPopulation(value: number | null | undefined) {
 
 function formatPercentage(value: number | null | undefined) {
   return value == null ? "Not reported" : `${value.toFixed(1)}%`;
+}
+
+function formatMonitoringDate(value: string | undefined) {
+  if (!value) return "Not supplied";
+  return new Intl.DateTimeFormat("en-IN", { month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
+}
+
+function formatElectricity(value: number | null | undefined, unit: "MU" | "MW") {
+  if (value == null) return "Not reported";
+  return `${value.toLocaleString("en-IN", { maximumFractionDigits: 2 })} ${unit}`;
+}
+
+function formatLiveWeatherTime(value: string | undefined) {
+  if (!value) return "Updating";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Kolkata",
+    timeZoneName: "short",
+  }).format(new Date(`${value}:00+05:30`));
+}
+
+function weatherDescription(code: number | undefined) {
+  if (code == null) return "Weather update";
+  if ([0].includes(code)) return "Clear sky";
+  if ([1, 2, 3].includes(code)) return "Partly cloudy";
+  if ([45, 48].includes(code)) return "Foggy";
+  if ([51, 53, 55, 56, 57].includes(code)) return "Drizzle";
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return "Rain";
+  if ([95, 96, 99].includes(code)) return "Thunderstorm";
+  return "Cloudy";
 }
 
 function findWardsByPostalCode(prefix: string): Ward[] {
@@ -1258,6 +1343,44 @@ const CSS = `
   pointer-events: none;
   font-family: inherit;
 }
+.nap-monitoring-marker { cursor: pointer; outline: none; }
+.nap-monitoring-marker-ring { fill: rgba(255, 255, 255, 0.72); stroke: rgba(15, 23, 42, 0.45); stroke-width: 1.5; }
+.nap-monitoring-marker-core { stroke: #ffffff; stroke-width: 2; filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.35)); }
+.nap-monitoring-marker[data-kind=air] .nap-monitoring-marker-core { fill: #0369a1; }
+.nap-monitoring-marker[data-kind=noise] .nap-monitoring-marker-core { fill: #0369a1; }
+.nap-monitoring-marker:hover .nap-monitoring-marker-ring,
+.nap-monitoring-marker:focus-visible .nap-monitoring-marker-ring { stroke: #0f172a; stroke-width: 2.5; }
+.nap-monitoring-marker-label {
+  pointer-events: none;
+  font-family: inherit;
+  font-size: 8px;
+  font-weight: 700;
+  fill: #0f172a;
+  stroke: rgba(255, 255, 255, 0.92);
+  stroke-width: 2.6;
+  paint-order: stroke fill;
+}
+.nap-monitoring-key {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: min(305px, calc(100% - 150px));
+  padding: 8px 10px;
+  border: 1px solid var(--nap-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--nap-bg) 92%, transparent);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  color: var(--nap-muted-fg);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.nap-monitoring-key-dot { width: 9px; height: 9px; border: 2px solid #ffffff; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.35); }
+.nap-monitoring-key[data-kind=air] .nap-monitoring-key-dot { background: #0369a1; }
+.nap-monitoring-key[data-kind=noise] .nap-monitoring-key-dot { background: #0369a1; }
 
 @media (max-width: 768px) {
   .nap-header { padding: 0 12px; gap: 8px; }
@@ -1291,6 +1414,10 @@ export function MumbaiAddressPicker({
   population = [],
   waterQuality = [],
   waterSectorConsumption = [],
+  airQuality = [],
+  noiseMonitoring = [],
+  electricitySectorConsumption = [],
+  electricitySupplySummaries = [],
 }: MumbaiAddressPickerProps) {
   const initialWard = defaultWardId ? WARD_BY_ID.get(defaultWardId) : undefined;
   const initialRegion = initialWard ? REGION_BY_ID.get(initialWard.regionId) : undefined;
@@ -1305,6 +1432,8 @@ export function MumbaiAddressPicker({
   const [searching, setSearching] = React.useState(false);
   const [pillarId, setPillarId] = React.useState<EnvironmentalPillarId>("population");
   const [pollutionCategoryIndex, setPollutionCategoryIndex] = React.useState(0);
+  const [liveMumbaiWeather, setLiveMumbaiWeather] = React.useState<LiveMumbaiWeather | null>(null);
+  const [liveWeatherError, setLiveWeatherError] = React.useState(false);
   const [mapContainerRef, mapSize] = useElementSize<HTMLDivElement>();
 
   const region = regionId ? REGION_BY_ID.get(regionId) ?? null : null;
@@ -1343,11 +1472,90 @@ export function MumbaiAddressPicker({
   const activePillar = ENVIRONMENTAL_PILLARS.find((pillar) => pillar.id === pillarId) ?? ENVIRONMENTAL_PILLARS[0];
   const isPopulationLayer = pillarId === "population";
   const isWaterLayer = pillarId === "water";
+  const isPollutionLayer = pillarId === "pollution";
+  const isClimateLayer = pillarId === "climate";
+  const isEnergyLayer = pillarId === "energy";
+  const activePollutionCategory = activePillar.subcategories?.[pollutionCategoryIndex];
+  const isAirPollution = isPollutionLayer && activePollutionCategory?.label === "Air";
+  const isNoisePollution = isPollutionLayer && activePollutionCategory?.label === "Noise";
   const activeParameters = activePillar.subcategories?.[pollutionCategoryIndex]?.parameters ?? activePillar.parameters;
   const populationYear = population[0]?.censusYear;
   const sourceLabel = population[0]?.dataSource?.split("|")[0]?.trim() ?? "Source not supplied";
   const waterReportingPeriod = waterQuality[0]?.reportingPeriod;
   const waterSourceLabel = waterQuality[0]?.dataSource ?? "Source not supplied";
+  const airLatestMonth = airQuality.at(-1)?.reportingMonth;
+  const latestAirObservations = airQuality.filter((record) => record.reportingMonth === airLatestMonth).slice().sort((a, b) => a.stationName.localeCompare(b.stationName));
+  const noiseLatestDate = noiseMonitoring.at(-1)?.monitoringDate;
+  const latestNoiseObservations = noiseMonitoring.filter((record) => record.monitoringDate === noiseLatestDate).slice().sort((a, b) => a.locationName.localeCompare(b.locationName));
+  const activeMonitoringMarkers = isAirPollution
+    ? latestAirObservations.flatMap((record) => {
+        const site = AIR_STATION_MARKERS[record.stationName];
+        return site
+          ? [{
+              ...site,
+              id: record.stationName,
+              kind: "air" as const,
+              metric: `AQI ${record.aqi}`,
+              tooltip: `BMC air-quality monitoring station: ${record.stationName}. Monthly AQI: ${record.aqi}. Pin marks the published monitoring area, not an exact sensor GPS coordinate.`,
+            }]
+          : [];
+      })
+    : isNoisePollution
+      ? latestNoiseObservations.flatMap((record) => {
+          const site = NOISE_LOCATION_MARKERS[record.locationName];
+          return site
+            ? [{
+                ...site,
+                id: record.locationName,
+                kind: "noise" as const,
+                metric: `Day ${record.dayLeq} / Night ${record.nightLeq} dB(A)`,
+                tooltip: `MPCB noise-monitoring location: ${record.locationName}. Day L_eq: ${record.dayLeq} dB(A); night L_eq: ${record.nightLeq} dB(A). Pin marks the published monitoring area, not an exact instrument GPS coordinate.`,
+              }]
+            : [];
+        })
+      : [];
+  const pollutionMapReadout = isAirPollution
+    ? `${activeMonitoringMarkers.length} BMC station readings shown as site data`
+    : isNoisePollution
+      ? `${activeMonitoringMarkers.length} MPCB location readings shown as site data`
+      : undefined;
+  const climateMapReadout = "Live Mumbai-wide weather estimate shown in the side panel";
+  const pollutionUnit = isAirPollution ? "AQI" : isNoisePollution ? "dB(A) L_eq" : activePillar.unit;
+  const pollutionCoverage = isAirPollution ? `${latestAirObservations.length} BMC stations` : isNoisePollution ? `${latestNoiseObservations.length} MPCB locations` : activePillar.coverage;
+  const pollutionPeriod = isAirPollution ? airLatestMonth : isNoisePollution ? noiseLatestDate : undefined;
+  const pollutionSource = isAirPollution ? airQuality[0]?.dataSource : isNoisePollution ? noiseMonitoring[0]?.dataSource : undefined;
+  const electricitySummary = electricitySupplySummaries.at(-1);
+  const electricityMaxSectorConsumption = Math.max(...electricitySectorConsumption.map((record) => record.annualConsumptionMu), 1);
+  const energyMapReadout = electricitySummary
+    ? `${formatElectricity(electricitySummary.annualConsumptionMu, "MU")} citywide electricity use shown in the side panel`
+    : "No verified citywide electricity data loaded";
+
+  React.useEffect(() => {
+    if (!isClimateLayer) return;
+
+    const controller = new AbortController();
+    const refreshWeather = async () => {
+      try {
+        const response = await fetch(LIVE_MUMBAI_WEATHER_URL, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error(`Open-Meteo returned ${response.status}`);
+        const data = (await response.json()) as LiveMumbaiWeather;
+        setLiveMumbaiWeather(data);
+        setLiveWeatherError(false);
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") setLiveWeatherError(true);
+      }
+    };
+
+    void refreshWeather();
+    const refreshTimer = window.setInterval(refreshWeather, 15 * 60 * 1000);
+    return () => {
+      controller.abort();
+      window.clearInterval(refreshTimer);
+    };
+  }, [isClimateLayer]);
 
   const matches = React.useMemo(
     () =>
@@ -1446,10 +1654,12 @@ export function MumbaiAddressPicker({
     });
   }, [ward, region]);
 
-  // Determine fill & opacity for wards in Purple Sunset Glow palette
+  // A single blue-grey map base keeps every layer visually consistent. Data layers
+  // use only a lighter-to-darker blue intensity scale; station pins carry their own meaning.
   const fillFor = (w: Ward) => {
     const isSelected = w.id === wardId;
     const isHovered = w.id === hoveredWardId;
+    const baseFill = "#7ea6c4";
     const wardPopulation = populationForWard(w)?.totalPopulation;
     const wardWaterQuality = waterQualityForWard(w)?.unsafeSamplePercentage;
 
@@ -1468,7 +1678,7 @@ export function MumbaiAddressPicker({
       const span = Math.max(waterQualityRange.max - waterQualityRange.min, 0.1);
       const ratio = (wardWaterQuality - waterQualityRange.min) / span;
       return {
-        fill: `hsl(${150 - ratio * 145} 68% ${48 + ratio * 5}%)`,
+        fill: `hsl(205 72% ${82 - ratio * 44}%)`,
         fillOpacity: isSelected || isHovered ? 1 : 0.9,
         stroke: isSelected ? "#0f172a" : "#ffffff",
         strokeWidth: isSelected ? 3 : isHovered ? 2 : 1.2,
@@ -1478,7 +1688,7 @@ export function MumbaiAddressPicker({
     if (matches.length > 0) {
       const isMatch = matchSet.has(w.id);
       return {
-        fill: w.color,
+        fill: baseFill,
         fillOpacity: isMatch ? (isHovered || isSelected ? 1 : 0.9) : 0.22,
         stroke: isSelected ? "#0f172a" : "#ffffff",
         strokeWidth: isSelected ? 2.5 : 1,
@@ -1489,26 +1699,25 @@ export function MumbaiAddressPicker({
       const hr = hovered?.regionId ?? hoveredRegionId;
       const isTarget = hr ? w.regionId === hr : false;
       return {
-        fill: w.color,
+        fill: baseFill,
         fillOpacity: isSelected ? 1 : isHovered ? 0.98 : isTarget ? 0.95 : 0.88,
         stroke: isSelected ? "#0f172a" : "#ffffff",
         strokeWidth: isSelected ? 3 : 1.2,
       };
     }
 
-    // When a region is selected, other regions stay visible in elegant pastel tint
+    // When a region is selected, other wards stay visible but subdued.
     if (w.regionId !== region.id) {
-      const isGolden = w.color === "#FFD23F";
       return {
-        fill: w.color,
-        fillOpacity: isHovered ? 0.6 : isGolden ? 0.45 : 0.32,
+        fill: baseFill,
+        fillOpacity: isHovered ? 0.6 : 0.32,
         stroke: isHovered ? "#ffffff" : "rgba(255, 255, 255, 0.85)",
         strokeWidth: isHovered ? 1.8 : 1.1,
       };
     }
 
     return {
-      fill: w.color,
+      fill: baseFill,
       fillOpacity: isSelected ? 1 : isHovered ? 0.98 : 0.9,
       stroke: isSelected ? "#0f172a" : "#ffffff",
       strokeWidth: isSelected ? 3 : 1.3,
@@ -1639,7 +1848,13 @@ export function MumbaiAddressPicker({
                       ? `Ward ${hovered.id} • ${formatPopulation(displayedPopulation?.totalPopulation)} residents (${displayedPopulation?.censusYear ?? "—"})`
                       : isWaterLayer
                         ? `Ward ${hovered.id} • ${formatPercentage(displayedWaterQuality?.unsafeSamplePercentage)} unsafe samples (${displayedWaterQuality?.reportingPeriod ?? "not reported"})`
-                        : `Ward ${hovered.id} • ${activePillar.label} records unavailable`}
+                        : isPollutionLayer
+                          ? pollutionMapReadout
+                          : isClimateLayer
+                            ? climateMapReadout
+                            : isEnergyLayer
+                              ? energyMapReadout
+                              : `Ward ${hovered.id} • ${activePillar.label} records unavailable`}
                   </span>
                 </>
               ) : ward ? (
@@ -1650,7 +1865,13 @@ export function MumbaiAddressPicker({
                       ? `Ward ${ward.id} • ${formatPopulation(displayedPopulation?.totalPopulation)} residents (${displayedPopulation?.censusYear ?? "—"})`
                       : isWaterLayer
                         ? `Ward ${ward.id} • ${formatPercentage(displayedWaterQuality?.unsafeSamplePercentage)} unsafe samples (${displayedWaterQuality?.reportingPeriod ?? "not reported"})`
-                        : `Ward ${ward.id} • ${activePillar.label} records unavailable`}
+                        : isPollutionLayer
+                          ? pollutionMapReadout
+                          : isClimateLayer
+                            ? climateMapReadout
+                            : isEnergyLayer
+                              ? energyMapReadout
+                              : `Ward ${ward.id} • ${activePillar.label} records unavailable`}
                   </span>
                 </>
               ) : region ? (
@@ -1661,7 +1882,13 @@ export function MumbaiAddressPicker({
                       ? `${WARDS_BY_REGION.get(region.id)?.length} wards • ${formatPopulation(regionPopulation)} residents`
                       : isWaterLayer
                         ? `${WARDS_BY_REGION.get(region.id)?.length} wards • published water-safety results`
-                        : `${WARDS_BY_REGION.get(region.id)?.length} wards • no verified ${activePillar.label.toLowerCase()} records`}
+                        : isPollutionLayer
+                          ? pollutionMapReadout
+                          : isClimateLayer
+                            ? climateMapReadout
+                            : isEnergyLayer
+                              ? energyMapReadout
+                              : `${WARDS_BY_REGION.get(region.id)?.length} wards • no verified ${activePillar.label.toLowerCase()} records`}
                   </span>
                 </>
               ) : (
@@ -1672,17 +1899,32 @@ export function MumbaiAddressPicker({
                       ? `24 wards • ${formatPopulation(totalPopulation)} residents (${populationYear ?? "census"})`
                       : isWaterLayer
                         ? `24 wards • published water-safety results (${waterReportingPeriod ?? "latest period"})`
-                        : `24 wards • no verified ${activePillar.label.toLowerCase()} records`}
+                        : isPollutionLayer
+                          ? pollutionMapReadout
+                          : isClimateLayer
+                            ? climateMapReadout
+                            : isEnergyLayer
+                              ? energyMapReadout
+                              : `24 wards • no verified ${activePillar.label.toLowerCase()} records`}
                   </span>
                 </>
               )}
             </div>
           </div>
 
+          {activeMonitoringMarkers.length > 0 && (
+            <div className="nap-monitoring-key" data-kind={activeMonitoringMarkers[0].kind}>
+              <span className="nap-monitoring-key-dot" aria-hidden="true" />
+              <span>
+                {activeMonitoringMarkers.length} published {isAirPollution ? "air-monitoring stations" : "noise-monitoring locations"}. Pins show the reported area, not GPS.
+              </span>
+            </div>
+          )}
+
           <svg
             viewBox={`0 0 ${mapSize.width} ${mapSize.height}`}
             role="img"
-            aria-label="Map of Mumbai Wards"
+            aria-label={activeMonitoringMarkers.length > 0 ? `Map of Mumbai wards with ${isAirPollution ? "air-quality stations" : "noise-monitoring locations"}` : "Map of Mumbai wards"}
             className="nap-svg"
             onMouseLeave={() => setHoveredWardId(null)}
           >
@@ -1715,17 +1957,46 @@ export function MumbaiAddressPicker({
                 );
               })}
 
-              {/* OVERVIEW LABELS: High contrast for all 3 colors */}
+              {/* Published station/location areas. These are not GPS positions. */}
+              {activeMonitoringMarkers.map((marker) => (
+                <g
+                  key={`${marker.kind}-${marker.id}`}
+                  className="nap-monitoring-marker"
+                  data-kind={marker.kind}
+                  aria-label={`${marker.tooltip} Select the surrounding ward.`}
+                  role="button"
+                  tabIndex={0}
+                  transform={`translate(${marker.point[0]}, ${marker.point[1]})`}
+                  onClick={() => {
+                    const markerWard = WARD_BY_ID.get(marker.wardId);
+                    if (markerWard) selectWard(markerWard);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    const markerWard = WARD_BY_ID.get(marker.wardId);
+                    if (markerWard) selectWard(markerWard);
+                  }}
+                >
+                  <title>{marker.tooltip} Click to zoom to the surrounding ward.</title>
+                  <circle className="nap-monitoring-marker-ring" r="8" />
+                  <circle className="nap-monitoring-marker-core" r="5" />
+                  <text className="nap-monitoring-marker-label" x="10" y="-10">
+                    {marker.shortLabel}
+                  </text>
+                </g>
+              ))}
+
+              {/* OVERVIEW LABELS */}
               {!isZoomed && (
                 <>
-                  {/* Western Suburbs on #EE4266 (Magenta Bloom): Crisp white text */}
                   <text
                     x={REGIONS[0].label[0]}
                     y={REGIONS[0].label[1]}
                     textAnchor="middle"
                     dominantBaseline="middle"
-                    fill="#ffffff"
-                    stroke="rgba(0, 0, 0, 0.35)"
+                    fill="#102a43"
+                    stroke="rgba(255, 255, 255, 0.82)"
                     strokeWidth="2.5"
                     paintOrder="stroke fill"
                     fontSize="18"
@@ -1735,14 +2006,13 @@ export function MumbaiAddressPicker({
                     Western Suburbs
                   </text>
 
-                  {/* Eastern Suburbs on #FFD23F (Golden Pollen): Deep dark espresso text for maximum contrast */}
                   <text
                     x={REGIONS[1].label[0]}
                     y={REGIONS[1].label[1]}
                     textAnchor="middle"
                     dominantBaseline="middle"
-                    fill="#2c1404"
-                    stroke="rgba(255, 255, 255, 0.75)"
+                    fill="#102a43"
+                    stroke="rgba(255, 255, 255, 0.82)"
                     strokeWidth="2"
                     paintOrder="stroke fill"
                     fontSize="18"
@@ -1752,14 +2022,13 @@ export function MumbaiAddressPicker({
                     Eastern Suburbs
                   </text>
 
-                  {/* Island City on #540D6E (Indigo): Crisp white text */}
                   <text
                     x={REGIONS[2].label[0]}
                     y={REGIONS[2].label[1]}
                     textAnchor="middle"
                     dominantBaseline="middle"
-                    fill="#ffffff"
-                    stroke="rgba(0, 0, 0, 0.35)"
+                    fill="#102a43"
+                    stroke="rgba(255, 255, 255, 0.82)"
                     strokeWidth="2.5"
                     paintOrder="stroke fill"
                     fontSize="18"
@@ -1774,14 +2043,13 @@ export function MumbaiAddressPicker({
               {/* ZOOMED LABELS */}
               {isZoomed &&
                 (region ? WARDS_BY_REGION.get(region.id) || [] : WARDS).map((w) => {
-                  const isGolden = w.color === "#FFD23F";
                   return (
                     <g key={w.id} transform={`translate(${w.label[0]}, ${w.label[1]})`} pointerEvents="none">
                       <text
                         textAnchor="middle"
                         dominantBaseline="middle"
-                        fill={isGolden ? "#2c1404" : "#ffffff"}
-                        stroke={isGolden ? "rgba(255, 255, 255, 0.75)" : "rgba(0, 0, 0, 0.35)"}
+                        fill="#102a43"
+                        stroke="rgba(255, 255, 255, 0.82)"
                         strokeWidth="2.2"
                         paintOrder="stroke fill"
                         fontSize={view.s > 2.5 ? "10.5" : "9"}
@@ -1810,7 +2078,7 @@ export function MumbaiAddressPicker({
                     <path
                       key={w.id}
                       d={w.d}
-                      fill={isActive ? region.color : "#cbd5e1"}
+                      fill={isActive ? "#4e86ad" : "#b8d0e3"}
                       fillOpacity={isActive ? 0.95 : 0.65}
                       stroke={isActive ? "#0f172a" : "#ffffff"}
                       strokeWidth={isActive ? 1.5 : 0.5}
@@ -1839,6 +2107,14 @@ export function MumbaiAddressPicker({
                   <span>{formatPercentage(waterQualityRange.max)} unsafe</span>
                 </div>
               </>
+            ) : isPollutionLayer && activeMonitoringMarkers.length > 0 ? (
+              <span className="nap-data-copy">
+                {activeMonitoringMarkers.length} {isAirPollution ? "BMC stations" : "MPCB locations"} shown as pins
+              </span>
+            ) : isClimateLayer ? (
+              <span className="nap-data-copy">Live Mumbai-wide weather estimate</span>
+            ) : isEnergyLayer && electricitySummary ? (
+              <span className="nap-data-copy">Mumbai City (BEST) citywide data</span>
             ) : (
               <span className="nap-data-copy">No verified records loaded</span>
             )}
@@ -1849,15 +2125,20 @@ export function MumbaiAddressPicker({
         <div className="nap-list">
           <div className="nap-data-context">
             <span className="nap-data-kicker">Environmental evidence</span>
-            <p className="nap-data-title">{activePillar.label}</p>
+            <p className="nap-data-title">{isPollutionLayer ? `${activePillar.label} · ${activePollutionCategory?.label ?? ""}` : activePillar.label}</p>
             <p className="nap-data-copy">{activePillar.description}</p>
             <div className="nap-data-meta">
-              <span><strong>Unit:</strong> {activePillar.unit}</span>
-              <span><strong>Coverage:</strong> {activePillar.coverage}</span>
+              <span><strong>Unit:</strong> {isPollutionLayer ? pollutionUnit : activePillar.unit}</span>
+              <span><strong>Coverage:</strong> {isPollutionLayer ? pollutionCoverage : activePillar.coverage}</span>
               {isPopulationLayer && <span><strong>Period:</strong> {populationYear ?? "Not supplied"}</span>}
               {isPopulationLayer && <span><strong>Source:</strong> {sourceLabel}</span>}
               {isWaterLayer && <span><strong>Period:</strong> {waterReportingPeriod ?? "Not supplied"}</span>}
               {isWaterLayer && <span><strong>Source:</strong> {waterSourceLabel}</span>}
+              {isPollutionLayer && <span><strong>Period:</strong> {formatMonitoringDate(pollutionPeriod)}</span>}
+              {isPollutionLayer && pollutionSource && <span><strong>Source:</strong> {pollutionSource}</span>}
+              {isClimateLayer && <span><strong>Source:</strong> Open-Meteo live weather model</span>}
+              {isEnergyLayer && <span><strong>Period:</strong> {electricitySummary?.reportingPeriod ?? "Not supplied"}</span>}
+              {isEnergyLayer && <span><strong>Source:</strong> {electricitySummary?.dataSource ?? "Not supplied"}</span>}
             </div>
             {activePillar.subcategories && (
               <div className="nap-parameter-tabs" aria-label="Pollution categories">
@@ -1926,7 +2207,104 @@ export function MumbaiAddressPicker({
             </section>
           )}
 
-          {isWaterLayer ? (
+          {isEnergyLayer && electricitySummary ? (
+            <>
+              <section className="nap-citywide-card" aria-label="Mumbai City electricity summary">
+                <p className="nap-citywide-title">Mumbai City electricity summary</p>
+                <p className="nap-citywide-copy">BEST service area, FY 2024-25 — citywide utility data, not ward averages.</p>
+                <div className="nap-population-facts" style={{ padding: 0, borderBottom: 0 }}>
+                  <div className="nap-population-fact"><span>Annual consumption</span><strong>{formatElectricity(electricitySummary.annualConsumptionMu, "MU")}</strong></div>
+                  <div className="nap-population-fact"><span>Average monthly use</span><strong>{formatElectricity(electricitySummary.averageMonthlyConsumptionMu, "MU")}</strong></div>
+                  <div className="nap-population-fact"><span>Maximum demand</span><strong>{formatElectricity(electricitySummary.maximumDemandMw, "MW")}</strong></div>
+                  <div className="nap-population-fact"><span>Rooftop solar capacity</span><strong>{formatElectricity(electricitySummary.rooftopSolarCapacityMw, "MW")}</strong></div>
+                </div>
+              </section>
+              <div className="nap-list-head">
+                <h3>Annual use by consumer category</h3>
+                <span className="nap-sub">Million Units (MU)</span>
+              </div>
+              <ul className="nap-ul">
+                {electricitySectorConsumption.map((record) => (
+                  <li className="nap-parameter" key={record.sector}>
+                    <div className="nap-sector-label">
+                      <span>{record.sector.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</span>
+                      <span>{formatElectricity(record.annualConsumptionMu, "MU")}</span>
+                    </div>
+                    <div className="nap-sector-track" aria-hidden="true">
+                      <div className="nap-sector-fill" style={{ width: `${(record.annualConsumptionMu / electricityMaxSectorConsumption) * 100}%`, backgroundColor: "#0369a1" }} />
+                    </div>
+                    <span className="nap-parameter-status">{record.consumerCount.toLocaleString("en-IN")} consumers · {formatElectricity(record.connectedLoadMw, "MW")} connected load · {formatElectricity(record.averageMonthlyConsumptionMu, "MU")}/month</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="nap-empty-state"><strong>Citywide utility evidence</strong>These BEST service-area totals are published for Mumbai City. They do not describe an individual ward’s electricity use.</p>
+            </>
+          ) : isClimateLayer ? (
+            <>
+              <section className="nap-citywide-card" aria-label="Live Mumbai weather estimate">
+                <p className="nap-citywide-title">Live Mumbai weather</p>
+                <p className="nap-citywide-copy">Citywide model estimate from Open-Meteo — not a ward measurement or a weather-station observation.</p>
+                {liveMumbaiWeather ? (
+                  <>
+                    <div className="nap-population-facts" style={{ padding: 0, borderBottom: 0 }}>
+                      <div className="nap-population-fact"><span>Temperature</span><strong>{liveMumbaiWeather.current.temperature_2m.toFixed(1)}°C</strong></div>
+                      <div className="nap-population-fact"><span>Feels like</span><strong>{liveMumbaiWeather.current.apparent_temperature.toFixed(1)}°C</strong></div>
+                      <div className="nap-population-fact"><span>Humidity</span><strong>{liveMumbaiWeather.current.relative_humidity_2m}%</strong></div>
+                      <div className="nap-population-fact"><span>Current rain</span><strong>{liveMumbaiWeather.current.rain.toFixed(1)} mm</strong></div>
+                      <div className="nap-population-fact"><span>Today max / min</span><strong>{liveMumbaiWeather.daily.temperature_2m_max[0]?.toFixed(1)}° / {liveMumbaiWeather.daily.temperature_2m_min[0]?.toFixed(1)}°</strong></div>
+                      <div className="nap-population-fact"><span>Today&apos;s rainfall</span><strong>{liveMumbaiWeather.daily.precipitation_sum[0]?.toFixed(1)} mm</strong></div>
+                    </div>
+                    <p className="nap-citywide-note">{weatherDescription(liveMumbaiWeather.current.weather_code)} · Wind {liveMumbaiWeather.current.wind_speed_10m.toFixed(1)} km/h · Rain chance {liveMumbaiWeather.daily.precipitation_probability_max[0] ?? "—"}% · UV max {liveMumbaiWeather.daily.uv_index_max[0]?.toFixed(1) ?? "—"} · Updated {formatLiveWeatherTime(liveMumbaiWeather.current.time)}</p>
+                  </>
+                ) : (
+                  <p className="nap-citywide-note">{liveWeatherError ? "The live weather source could not be reached. Please try again shortly." : "Loading the latest Open-Meteo weather estimate…"}</p>
+                )}
+              </section>
+            </>
+          ) : isAirPollution ? (
+            <>
+              <div className="nap-list-head">
+                <h3>BMC air-quality stations</h3>
+                <span className="nap-sub">{formatMonitoringDate(airLatestMonth)}</span>
+              </div>
+              <ul className="nap-ul">
+                {latestAirObservations.map((record) => (
+                  <li className="nap-item" key={record.stationName}>
+                    <span className="nap-dot" style={{ backgroundColor: "#0369a1" }} />
+                    <div className="nap-names">
+                      <span className="nap-name">{record.stationName}</span>
+                      <span className="nap-sub">Monthly average AQI · monitoring station</span>
+                    </div>
+                    <span className="nap-num">AQI {record.aqi}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="nap-empty-state"><strong>Station-based evidence</strong>These readings describe their named BMC stations, not every ward around them.</p>
+            </>
+          ) : isNoisePollution ? (
+            <>
+              <div className="nap-list-head">
+                <h3>MPCB noise-monitoring locations</h3>
+                <span className="nap-sub">{formatMonitoringDate(noiseLatestDate)}</span>
+              </div>
+              <ul className="nap-ul">
+                {latestNoiseObservations.map((record) => (
+                  <li className="nap-item" key={record.locationName}>
+                    <span className="nap-dot" style={{ backgroundColor: "#0369a1" }} />
+                    <div className="nap-names">
+                      <span className="nap-name">{record.locationName}</span>
+                      <span className="nap-sub">24-hour monitoring location · L_eq dB(A)</span>
+                    </div>
+                    <div className="nap-meta">
+                      <span className="nap-num">Day {record.dayLeq.toFixed(1)}</span>
+                      <span className="nap-population">Night {record.nightLeq.toFixed(1)}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <p className="nap-empty-state"><strong>Site-based evidence</strong>Day and night levels are published for named MPCB monitoring locations, not estimated ward averages.</p>
+            </>
+          ) : isWaterLayer ? (
             <>
               <div className="nap-list-head">
                 <h3>Published water-safety results</h3>
